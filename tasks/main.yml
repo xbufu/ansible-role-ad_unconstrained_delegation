@@ -1,0 +1,48 @@
+---
+- name: Get all domain computers
+  ansible.windows.win_powershell:
+    script: |
+      Get-ADComputer -Filter * | Select -Exp Name
+  register: computers_result
+
+- name: Parse the computer result to a list
+  ansible.builtin.set_fact:
+    domain_computers: "{{ computers_result.output | list }}"
+
+- name: Get {{ num_computers }} random computers
+  ansible.builtin.set_fact:
+    unconstrained_computers: "{{ (domain_computers | shuffle)[:num_computers] }}"
+
+- name: Set TrustedForDelegation attribute on computers
+  ansible.windows.win_powershell:
+    script: |
+      Set-ADAccountControl -Identity {{ item }} -TrustedForDelegation:$true
+  loop: '{{ unconstrained_computers }}'
+
+- name: Update Local Security Policy to allow users to run scheduled tasks
+  ansible.windows.win_user_right:
+    name: SeBatchLogonRight
+    users:
+    - '{{ item.username }}'
+    action: add
+  loop: '{{ login_event_users }}'
+
+- name: Create scheduled tasks
+  community.windows.win_scheduled_task:
+    name: 'Unconstrained delegation login event on {{ target_computer }}'
+    logon_type: password
+    username: '{{ task_user.username }}'
+    password: '{{ task_user.password}}'
+    actions:
+      - path: cmd.exe
+        arguments: '/c dir \\{{ target_computer }}\c$'
+    triggers:
+      - type: daily
+        start_boundary: '2017-10-09T09:00:00'
+        repetition:
+          interval: PT1M
+  loop: '{{ unconstrained_computers }}'
+  loop_control:
+    loop_var: target_computer
+  vars:
+    task_user: '{{ login_event_users | random }}'
