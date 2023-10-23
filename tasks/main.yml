@@ -23,7 +23,7 @@
   ansible.windows.win_user_right:
     name: SeBatchLogonRight
     users:
-    - '{{ item.username }}'
+      - '{{ item.username }}'
     action: add
   loop: '{{ login_event_users }}'
 
